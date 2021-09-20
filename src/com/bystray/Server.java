@@ -11,13 +11,25 @@ public class Server {
     private final static int PORT = 8080;
     private final static int TIMEOUT_SECONDS = 15;
 
+    private final static int CORE_POOL = 4;
+    private final static int MAX_POOL = 10;
+    private final static int QUEUE_CAPACITY = 2;
+
+
     private AsynchronousServerSocketChannel server;
     private ThreadPoolExecutor threadPool;
 
     public void run() {
 
         try {
-            threadPool = new ThreadPoolExecutor(2, 10, TIMEOUT_SECONDS, TimeUnit.SECONDS, new LinkedBlockingQueue<>(2));
+            threadPool = new ThreadPoolExecutor(
+                    CORE_POOL,
+                    MAX_POOL,
+                    TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS,
+                    new LinkedBlockingQueue<>(QUEUE_CAPACITY),
+                    new RejectedExecution());
+
             server = AsynchronousServerSocketChannel.open();
             server.bind(new InetSocketAddress(IP_ADDRESS, PORT));
 
@@ -28,13 +40,11 @@ public class Server {
             while (runServer) {
                 try {
                     Future<AsynchronousSocketChannel> future = server.accept();
-                    AsynchronousSocketChannel clientChannel = future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    AsynchronousSocketChannel clientChannel = future.get();
 
                     var handler = new HttpMessageHandler(clientChannel);
                     threadPool.submit(handler);
 
-                } catch (TimeoutException timeoutException) {
-                    timeoutException.printStackTrace();
                 } catch (InterruptedException exception) {
                     exception.printStackTrace();
                     runServer = false;
@@ -42,8 +52,18 @@ public class Server {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            if (threadPool != null) {
+                threadPool.shutdown();
+            }
         }
     }
 
+}
 
+class RejectedExecution implements RejectedExecutionHandler {
+    @Override
+    public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+        System.out.println("Rejected of create thread, added to queue.");
+    }
 }
